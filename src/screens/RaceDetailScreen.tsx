@@ -37,13 +37,12 @@ export default function RaceDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [tracking, setTracking] = useState(false);
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
-  const [otherLocations, setOtherLocations] = useState<
-    Map<string, { lat: number; lng: number }>
-  >(new Map());
+  const [otherLocations, setOtherLocations] = useState<Map<string, { lat: number; lng: number }>>(new Map());
 
   const mapRef = useRef<MapView>(null);
   const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
   const socketInitialized = useRef(false);
+  const locationCallbackRef = useRef<any>(null);
 
   // ─────────────────────────────────────────────
   // CARGAR DATOS DE LA CARRERA
@@ -53,26 +52,11 @@ export default function RaceDetailScreen() {
 
     return () => {
       stopLocationTracking();
-      disconnectSocket();
-      offLocationUpdate();
-    };
-  }, [raceId]);
-
-  // ─────────────────────────────────────────────
-  // INICIALIZAR WEBSOCKET SOLO CUANDO HAY USER + RACE
-  // ─────────────────────────────────────────────
-  useEffect(() => {
-    if (user && race && !socketInitialized.current) {
-      socketInitialized.current = true;
-      initWebSocket();
-    }
-
-    return () => {
       leaveRace(raceId);
       disconnectSocket();
-      offLocationUpdate();
+      if (locationCallbackRef.current) offLocationUpdate();
     };
-  }, [race, user]);
+  }, [raceId]);
 
   const loadRaceData = async () => {
     try {
@@ -80,6 +64,7 @@ export default function RaceDetailScreen() {
         raceApi.getById(raceId),
         raceApi.getResults(raceId),
       ]);
+      console.log(raceData);
       setRace(raceData);
       setResults(resultsData);
     } catch (error) {
@@ -92,6 +77,19 @@ export default function RaceDetailScreen() {
   // ─────────────────────────────────────────────
   // INICIALIZAR WEBSOCKET
   // ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!user || !race || socketInitialized.current) return;
+
+    socketInitialized.current = true;
+    initWebSocket();
+
+    return () => {
+      leaveRace(raceId);
+      disconnectSocket();
+      if (locationCallbackRef.current) offLocationUpdate();
+    };
+  }, [user, race]);
+
   const initWebSocket = async () => {
     try {
       const token = await getIdToken();
@@ -100,7 +98,7 @@ export default function RaceDetailScreen() {
       initSocket(token);
       joinRace(raceId);
 
-      onLocationUpdate((data) => {
+      const callback = (data: any) => {
         if (data.userId !== user?.uid) {
           setOtherLocations((prev) => {
             const newMap = new Map(prev);
@@ -108,7 +106,10 @@ export default function RaceDetailScreen() {
             return newMap;
           });
         }
-      });
+      };
+
+      locationCallbackRef.current = callback;
+      onLocationUpdate(callback);
     } catch (error) {
       console.error('WS error:', error);
     }
@@ -165,10 +166,10 @@ export default function RaceDetailScreen() {
   };
 
   // ─────────────────────────────────────────────
-  // TRACKING GPS EN TIEMPO REAL
+  // TRACKING GPS
   // ─────────────────────────────────────────────
   const startLocationTracking = async () => {
-    stopLocationTracking(); // evita duplicados
+    stopLocationTracking();
 
     locationSubscriptionRef.current = await Location.watchPositionAsync(
       {
@@ -183,15 +184,13 @@ export default function RaceDetailScreen() {
           sendLocationUpdate(raceId, location.coords.latitude, location.coords.longitude);
         }
 
-        if (mapRef.current) {
-          mapRef.current.animateToRegion({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          });
-        }
-      },
+        mapRef.current?.animateToRegion({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
+      }
     );
   };
 
@@ -220,41 +219,21 @@ export default function RaceDetailScreen() {
     longitudeDelta: 0.1,
   };
 
-  // ─────────────────────────────────────────────
-  // UI
-  // ─────────────────────────────────────────────
   return (
     <View style={styles.container}>
       <MapView ref={mapRef} style={styles.map} initialRegion={region}>
-        <Marker coordinate={{ latitude: race.startPoint.lat, longitude: race.startPoint.lng }} title="Inicio" pinColor="green" />
-        <Marker coordinate={{ latitude: race.endPoint.lat, longitude: race.endPoint.lng }} title="Fin" pinColor="red" />
-
-        {userLocation && (
+        {race.route.map((point: { lat: number; lng: number }, index: number) => (
           <Marker
-            coordinate={{
-              latitude: userLocation.coords.latitude,
-              longitude: userLocation.coords.longitude,
-            }}
-            title="Tu ubicación"
-            pinColor="blue"
-          />
-        )}
-
-        {Array.from(otherLocations).map(([userId, loc]) => (
-          <Marker
-            key={userId}
-            coordinate={{ latitude: loc.lat, longitude: loc.lng }}
-            title={`Participante ${userId.slice(0, 6)}`}
-            pinColor="orange"
+            key={`marker-${index}`}
+            coordinate={{ latitude: point.lat, longitude: point.lng }}
+            title={index === 0 ? 'Inicio' : index === race.route.length - 1 ? 'Fin' : undefined}
+            pinColor={index === 0 ? 'green' : index === race.route.length - 1 ? 'red' : 'blue'}
           />
         ))}
 
         <Polyline
-          coordinates={[
-            { latitude: race.startPoint.lat, longitude: race.startPoint.lng },
-            { latitude: race.endPoint.lat, longitude: race.endPoint.lng },
-          ]}
-          strokeWidth={3}
+          coordinates={race.route.map((p: { lat: number; lng: number }) => ({ latitude: p.lat, longitude: p.lng }))}
+          strokeWidth={4}
           strokeColor="#007AFF"
         />
       </MapView>
@@ -277,14 +256,11 @@ export default function RaceDetailScreen() {
         {results.length > 0 && (
           <View style={styles.results}>
             <Text style={styles.resultsTitle}>Resultados:</Text>
-
             {results.slice(0, 5).map((r, i) => (
               <Text key={r.userId} style={styles.resultItem}>
                 {i + 1}.{' '}
                 {r.duration
-                  ? `${(r.duration / 60000).toFixed(2)} min - ${r.avgSpeed?.toFixed(
-                      2,
-                    )} km/h`
+                  ? `${(r.duration / 60000).toFixed(2)} min - ${r.avgSpeed?.toFixed(2)} km/h`
                   : 'En curso'}
               </Text>
             ))}

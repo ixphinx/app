@@ -1,9 +1,8 @@
 import axios, { AxiosInstance } from 'axios';
 import { API_BASE_URL } from '../config/firebase';
+import auth from '@react-native-firebase/auth';
 
-// Crear instancia de axios sin interceptor global
-// El token se pasará explícitamente en cada llamada
-export function createApiClient(getToken: () => Promise<string | null>): AxiosInstance {
+function createApiClient(): AxiosInstance {
   const api = axios.create({
     baseURL: API_BASE_URL,
     headers: {
@@ -11,38 +10,37 @@ export function createApiClient(getToken: () => Promise<string | null>): AxiosIn
     },
   });
 
-  // Interceptor para agregar token de autenticación
+  // Interceptor SIEMPRE obtiene token actualizado desde Firebase
   api.interceptors.request.use(
     async (config) => {
-      const token = await getToken();
-      if (token) {
+      const currentUser = auth().currentUser;
+
+      if (currentUser) {
+        const token = await currentUser.getIdToken();
         config.headers.Authorization = `Bearer ${token}`;
+      } else {
+        console.log("⚠️ No hay usuario logueado → sin token");
       }
+
       return config;
     },
-    (error) => {
-      return Promise.reject(error);
-    },
+    (error) => Promise.reject(error)
   );
 
   return api;
 }
 
-// Instancia por defecto (se inicializará con el token getter)
-let apiInstance: AxiosInstance | null = null;
-
-export function initializeApi(getToken: () => Promise<string | null>) {
-  apiInstance = createApiClient(getToken);
-}
+// Instancia global
+const apiInstance = createApiClient();
 
 function getApi(): AxiosInstance {
-  if (!apiInstance) {
-    throw new Error('API no inicializada. Llama a initializeApi primero.');
-  }
   return apiInstance;
 }
 
+// -------- API ENDPOINTS --------
+
 export interface Race {
+  route: any;
   id: string;
   name: string;
   startPoint: { lat: number; lng: number };
@@ -101,8 +99,12 @@ export const raceApi = {
   },
 
   getUserRaces: async (): Promise<Race[]> => {
-    const response = await getApi().get('/users/me/races');
-    return response.data;
+    try {
+      const response = await getApi().get('/users/me/races');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error getting user races:', error);
+      return [];
+    }
   },
 };
-

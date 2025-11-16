@@ -7,6 +7,6 @@ export const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '1:223158751903:android:c7bbfbdcd2967406b9c8aa',
 };
 
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
-export const WS_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://ixtest.myvnc.com';
+export const WS_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://ixtest.myvnc.com';
 

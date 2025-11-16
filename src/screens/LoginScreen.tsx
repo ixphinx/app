@@ -15,7 +15,12 @@ export default function LoginScreen() {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { confirmation, signInWithPhoneNumber, confirmCode } = useAuth();
+  const {
+    confirmation,
+    signInWithPhoneNumber,
+    confirmCode,
+    resetConfirmation,
+  } = useAuth();
 
   const handleSendCode = async () => {
     if (!phoneNumber) {
@@ -102,11 +107,7 @@ export default function LoginScreen() {
 
           <TouchableOpacity
             style={styles.linkButton}
-            onPress={() => {
-              // Si quiere cambiar el número, reiniciamos el flujo
-              setCode('');
-              useAuth().confirmation = null;
-            }}
+            onPress={resetConfirmation}
           >
             <Text style={styles.linkText}>Cambiar número</Text>
           </TouchableOpacity>
